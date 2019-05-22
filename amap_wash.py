@@ -121,8 +121,8 @@ def pick(f_raw):
 
 
 def spec(pois,ad):
-    citys = {}
     f_poi = 'raw\\'+ad+'0000_pois_raw.json'
+    citys = {}
     for l in open(f_poi,'r',encoding='utf-8'):
         j = json.loads(l)
         id = j['id']

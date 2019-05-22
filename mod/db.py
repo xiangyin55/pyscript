@@ -1,202 +1,281 @@
-#-------------------------------------------------------------------------------
-# Name:        模块1
-# Purpose:
-#
-# Author:      Administrator
-#
-# Created:     07/05/2019
-# Copyright:   (c) Administrator 2019
-# Licence:     <your licence>
-#-------------------------------------------------------------------------------
+# -*- encoding: utf-8 -*-
+
 import sqlite3
 import json
+import mod.logger as logger
+import time
 
-if 'dbpath' not in locals().keys() : dbpath = u'db\\mfw.db'
-if 'ldebug' not in locals().keys() : ldebug = False
+class database:
 
-def t_c ():
-    conn = sqlite3.connect(dbpath)
-    cur = conn.cursor()
-    create_table_poi ='''
-    create table IF NOT EXISTS poi (
-        id      TEXT NOT NULL PRIMARY KEY,
-        parent  TEXT,
-        mdd     TEXT,
-        level   INTEGER,
-        name    TEXT,
-        text    TEXT,
-        flag    INTEGER  default 0
-    );
-    '''
-    cur.executescript(create_table_poi)
+    log = logger.logger("debug",log_name=time.strftime("db-%Y-%m-%d.log", time.localtime()))
 
-    create_table_mdd ='''
-    create table IF NOT EXISTS mdd (
-        id      TEXT NOT NULL PRIMARY KEY,
-        parent  TEXT,
-        level   INTEGER,
-        name    TEXT,
-        text    TEXT,
-        flag     INTEGER  default 0
-    );
-    '''
-    cur.executescript(create_table_mdd)
+    def __init__(self, dbpath):
+        self.dbpath = dbpath if dbpath else "dat\\meet.db"
+
+        self.t_c()
+
+    def _opendb(self):
+        conn = sqlite3.connect(self.dbpath)
+        cur = conn.cursor()
+        return conn,cur
+
+    def _closedb(self,conn):
+        conn.commit()
+        conn.close()
 
 
-    conn.commit()
-    conn.close()
-    return
 
-def t_poi_a (res):
-    if not res : return
-    conn = sqlite3.connect(dbpath)
-    cur = conn.cursor()
-    sucs = True
-    for r in res:
-        try:
-            sql = 'INSERT INTO poi (id,parent,mdd,level,name) VALUES ( "{}","{}","{}",{},"{}" )'.format(r['id'],r['parent'],r['mdd'],r['level'],r['name'])
-            cur.execute(sql)
-
-        except Exception as e:
+    def _isql(self,t,o):
+        sql = ''
+        k,v = '',''
+        for item in o:
             try:
-                if not r['mdd']:
-                    sql = 'UPDATE poi SET parent="{}", level={}, name="{}" WHERE id="{}"'.format(r['parent'],r['level'],r['name'],r['id'])
+                if isinstance(o[item],int) or isinstance(o[item],float) :
+                    s = str(o[item])
                 else:
-                    sql = 'UPDATE poi SET parent="{}", mdd="{}", level={}, name="{}" WHERE id="{}"'.format(r['parent'],r['mdd'],r['level'],r['name'],r['id'])
-                cur.execute(sql)
+                    s = '"'+o[item]+'"'
+                k += item if not k else ','+item
+                v += s if not v else ','+s
             except Exception as e:
-                if ldebug : print (e)
-                sucs = False
+                self.log.warning(o)
+                self.log.warning(e)
+
+        sql = 'INSERT INTO {} ({}) VALUES ( {} )'.format(t,k,v)
+
+        #self.log.debug(sql)
+
+        return sql
+
+    def _usql(self,t,o):
+        sql = ''
+        s = ''
+        for item in o:
+            if item =='id': continue
+            s += ',' if s else ''
+            if isinstance(o[item],int) or isinstance(o[item],float) :
+                s += "{}={}".format(item,str(o[item]))
             else:
-                i = 0
-                #print (sql +" is OK!")
-        if ldebug :print (sql)
-    if sucs and res[0]['parent'] :
+                s += '{}="{}"'.format(item,o[item].replace('"',''))
+
+        sql = 'UPDATE {} SET {} WHERE id="{}"'.format(t,s,o['id'])
+
+        return sql
+
+
+    def t_c (self):
+        conn,cur = self._opendb()
+
+
+        create_table_district ='''
+        create table IF NOT EXISTS district (
+            id      TEXT NOT NULL PRIMARY KEY,
+            name    TEXT,
+            area    TEXT,
+            count   INTEGER default 0,
+            flag    INTEGER  default 0
+        );
+        '''
+        cur.executescript(create_table_district)
+
+        create_table_category ='''
+        create table IF NOT EXISTS category (
+            id      TEXT PRIMARY KEY ,
+            classify    TEXT,
+            name    TEXT
+        );
+        '''
+        cur.executescript(create_table_category)
+
+        create_table_pois = '''
+        CREATE TABLE  IF NOT EXISTS pois (
+            id     TEXT NOT NULL PRIMARY KEY,
+            parent  TEXT,
+            name    TEXT,
+            alias   TEXT,
+            x       REAL,
+            y       REAL,
+            city    TEXT,
+            adcode  TEXT,
+            type    TEXT,
+            star    TEXT,
+            tag     TEXT,
+            theme   TEXT,
+            score   REAL,
+            shape   INTEGER,
+            zoom    INTEGER,
+            show    INTEGER,
+            cover   TEXT,
+            intro TEXT
+        );
+
+        '''
+        cur.executescript(create_table_pois)
+
+        create_table_shape ='''
+        create table IF NOT EXISTS shape (
+            id      TEXT PRIMARY KEY ,
+            shape   TEXT
+        );
+        '''
+        cur.executescript(create_table_shape)
+
+        create_table_scenic ='''
+        create table IF NOT EXISTS scenic (
+            id       text not null PRIMARY KEY ,
+            poi      text not null,
+            classify text not null,
+            parent   text,
+            text     text,
+            url      text
+        );
+        '''
+        cur.executescript(create_table_scenic)
+
+        create_table_image ='''
+        create table IF NOT EXISTS image (
+            id      text not null  PRIMARY KEY,
+            poi       text not null,
+            parent   text,
+            flag     INTEGER  default 0
+        );
+        --CREATE UNIQUE INDEX if not exists  image_i ON intro(id, url);
+        '''
+        cur.executescript(create_table_image)
+
+        create_table_scenic ='''
+        create table IF NOT EXISTS scenic (
+            id      TEXT NOT NULL PRIMARY KEY,
+            poi     TEXT,
+            name    TEXT,
+            type    TEXT,
+            url     TEXT,
+            text    TEXT,
+            year    INTEGER  default 2018,
+            mon     INTEGER  default 1,
+            day     INTEGER  default 1,
+            flag    INTEGER  default 0
+        );
+        '''
+        cur.executescript(create_table_scenic)
+
+        self._closedb(conn)
+        return
+
+
+    def t_s (self,k):
+
+        jsql = {
+
+            'province': 'SELECT id  from district where area is null',
+            'image': 'SELECT id  from image where flag=0',
+            'pickimage': 'SELECT id  from image where flag=1',
+            'level': "SELECT id,name,x,y,adcode,star,show from pois where type='aoi' and star like 'A%' order by star desc, zoom, score desc,tag"
+            }
+
+        if not k in jsql:
+            log.error('{} is not in select sql list!'.format(s))
+            return -1
+
+        conn,cur = self._opendb()
+        self.log.debug (jsql[k])
+
         try:
-            id = res[0]['parent']
-            sql = 'UPDATE poi SET flag=1  WHERE id={}'.format(id)
+            cursor  = cur.execute(jsql[k]).fetchall()
+        except Exception as e:
+            self.log.warning(e)
+            cursor = ""
+
+
+        self._closedb(conn)
+        return cursor
+
+
+    def t_s_byid (self,k,id):
+
+        jsql = {
+            'city': 'SELECT name,id  from district where id="{}"'.format(id)  #查询城市名称
+            }
+
+        if not k in jsql:
+            log.error('{} is not in select sql list!'.format(s))
+            return -1
+
+        conn,cur = self._opendb()
+        self.log.debug (jsql[k])
+
+        try:
+            cursor  = cur.execute(jsql[k]).fetchall()
+        except Exception as e:
+            self.log.warning(e)
+            cursor = ""
+
+
+        self._closedb(conn)
+        return cursor
+
+
+    def t_u(self,t,o):
+        conn,cur = self._opendb()
+        sucs = True
+        sql = self._usql(t,o)
+        try:
             cur.execute(sql)
         except Exception as e:
-            print (e)
-        if ldebug :print (sql)
+            self.log.warning(sql)
+            self.log.warning(e)
+            sucs = False
 
-    elif sucs and res[0]['mdd'] :
-        try:
-            id = res[0]['mdd']
-            sql = 'UPDATE mdd SET flag=1  WHERE id={}'.format(id)
-            cur.execute(sql)
-        except Exception as e:
-            print (e)
-        if ldebug :print (sql)
+        self._closedb(conn)
+        return sucs
 
-    conn.commit()
-    conn.close()
-    return
+    def t_a (self,t,o,force=False,fcontinue=False):
+        # force :数据insert识别后是否尝试 update
+        if not t or not o :
+            self.log.error('table or content is null!')
+            return -1
 
+        conn,cur = self._opendb()
+        sucs = True
+        for r in o:
+            # 尝试插入数据
+            sql = self._isql(t,r)
 
-
-def t_poi_u(id):
-    conn = sqlite3.connect(dbpath)
-    cur = conn.cursor()
-    try:
-        sql = 'UPDATE poi SET flag=2  WHERE id="{}"'.format(id)
-        cur.execute(sql)
-    except Exception as e:
-        print (e)
-    if ldebug :print (sql)
-    conn.commit()
-    conn.close()
-
-def t_poi_u_d(id,text):
-    conn = sqlite3.connect(dbpath)
-    cur = conn.cursor()
-    try:
-        sql = "UPDATE poi SET text=?  WHERE id=?"
-        cur.execute(sql,(text,id))
-    except Exception as e:
-        print (e)
-    if ldebug :print (sql,text)
-    conn.commit()
-    conn.close()
-
-
-def t_poi_s (level=None):
-    conn = sqlite3.connect(dbpath)
-    cur = conn.cursor()
-    if not level:
-        sql = 'SELECT id from poi where text is NULL'
-    else:
-        sql = 'SELECT id  from poi where level={0} and flag=0'.format(level)
-    try:
-        cursor  = cur.execute(sql).fetchall()
-    except Exception as e:
-        print (e)
-        cursor = ""
-    if ldebug :print (sql)
-    conn.commit()
-    conn.close()
-    return cursor
-
-
-
-def t_mdd_a (res):
-    if not res : return
-
-    conn = sqlite3.connect(dbpath)
-    cur = conn.cursor()
-    sucs = True
-    for r in res:
-
-        try:
-            sql = 'INSERT INTO mdd (id,parent,level,name) VALUES ( "{}","{}",{},"{}" )'.format(r['id'],r['parent'],r['level'],r['name'])
-            cur.execute(sql)
-        except :
             try:
-                sql = 'UPDATE mdd SET parent="{}", level={}, name="{}" WHERE id="{}"'.format(r['parent'],r['level'],r['name'],r['id'])
                 cur.execute(sql)
+                continue
             except Exception as e:
-                if ldebug : print (e)
                 sucs = False
-        if ldebug :print (sql)
+                if not force:
+                    self.log.warning(sql)
+                    self.log.warning(e)
 
-    if sucs and res[0]['parent'] :
-        try:
-            id = res[0]['parent']
-            sql = 'UPDATE mdd SET flag=1  WHERE id={}'.format(id)
-            cur.execute(sql)
-        except Exception as e:
-            print (e)
-        if ldebug :print (sql)
 
-    conn.commit()
-    conn.close()
-    return
+            if not sucs and not force :
+                if fcontinue: continue
+                else: break
 
-def t_mdd_s (level=2):
-    conn = sqlite3.connect(dbpath)
-    cur = conn.cursor()
-    try:
-        if level == 1:
-            sql = 'SELECT id  from mdd where level=1 and flag=0'
-        else:
-            sql = 'SELECT id  from mdd where (level=2 and flag=0) or flag=0'
-        cursor  = cur.execute(sql).fetchall()
-    except Exception as e:
-        print (e)
-        cursor = ""
-    if ldebug :print (sql)
-    conn.commit()
-    conn.close()
-    return cursor
+            sql = self._usql(t,r)
+            try:
 
-def t_mdd_u(id):
-    conn = sqlite3.connect(dbpath)
-    cur = conn.cursor()
-    try:
-        sql = 'UPDATE mdd SET flag=2  WHERE id="{}"'.format(id)
-        cur.execute(sql)
-    except Exception as e:
-        print (e)
-    if ldebug :print (sql)
-    conn.commit()
-    conn.close()
+                cur.execute(sql)
+                sucs = True
+            except Exception as e:
+                self.log.warning(sql)
+                self.log.warning(e)
+                sucs = False
+
+            if not sucs and not fcontinue: break
+
+        self._closedb(conn)
+        return sucs
+
+
+if __name__ == '__main__':
+
+    d = database('..\\dat\\meet.db')
+    s = d.t_s('mdd')
+    print (s)
+
+
+
+

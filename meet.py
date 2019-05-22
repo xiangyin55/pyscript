@@ -1,13 +1,4 @@
-#-------------------------------------------------------------------------------
-# Name:        模块1
-# Purpose:
-#
-# Author:      Administrator
-#
-# Created:     28/04/2019
-# Copyright:   (c) Administrator 2019
-# Licence:     <your licence>
-#-------------------------------------------------------------------------------
+# -*- encoding: utf-8 -*-
 
 import threading
 import requests,urllib
@@ -15,15 +6,19 @@ import json,time,re,random,datetime
 import sqlite3
 import js2py
 from pyquery import PyQuery as pq
-import mod.db as db
+import mod.meetdb as db
 import mod.amap as amap
+import mod.logger as logger
+import html
 import winsound
 
 
-jm = js2py.eval_js(open("mod/mfw.js",'r').read())
-ld = True
+jm = js2py.eval_js(open("mod/meet.js",'r').read())
 
+log_name=time.strftime("meet-%Y-%m-%d.log", time.localtime())
+log = logger.logger("info",log_name=log_name)
 
+db.t_c()
 
 
 def threadrun(func,ids,tcount):
@@ -50,94 +45,251 @@ def threadrun(func,ids,tcount):
     for i in range(len(task)):
         threads[i].join()
 
-    print ('Multi threading tasks ' + str(func) + ' is over!!')
+    log.info ('Multi threading tasks ' + str(func) + ' is over!!')
 
 
 def craw(url,params=None,headers=None,method='get'):
+    agents =[
+        "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.1 (KHTML, like Gecko) Chrome/22.0.1207.1 Safari/537.1",
+        "Mozilla/5.0 (X11; CrOS i686 2268.111.0) AppleWebKit/536.11 (KHTML, like Gecko) Chrome/20.0.1132.57 Safari/536.11",
+        "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/536.6 (KHTML, like Gecko) Chrome/20.0.1092.0 Safari/536.6",
+        "Mozilla/5.0 (Windows NT 6.2) AppleWebKit/536.6 (KHTML, like Gecko) Chrome/20.0.1090.0 Safari/536.6",
+        "Mozilla/5.0 (Windows NT 6.2; WOW64) AppleWebKit/537.1 (KHTML, like Gecko) Chrome/19.77.34.5 Safari/537.1",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/536.5 (KHTML, like Gecko) Chrome/19.0.1084.9 Safari/536.5",
+        "Mozilla/5.0 (Windows NT 6.0) AppleWebKit/536.5 (KHTML, like Gecko) Chrome/19.0.1084.36 Safari/536.5",
+        "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1063.0 Safari/536.3",
+        "Mozilla/5.0 (Windows NT 5.1) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1063.0 Safari/536.3",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_0) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1063.0 Safari/536.3",
+        "Mozilla/5.0 (Windows NT 6.2) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1062.0 Safari/536.3",
+        "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1062.0 Safari/536.3",
+        "Mozilla/5.0 (Windows NT 6.2) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1061.1 Safari/536.3",
+        "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1061.1 Safari/536.3",
+        "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1061.1 Safari/536.3",
+        "Mozilla/5.0 (Windows NT 6.2) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1061.0 Safari/536.3",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/535.24 (KHTML, like Gecko) Chrome/19.0.1055.1 Safari/535.24",
+        "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/57.0.2987.133 Safari/537.36"
+        ]
 
-    headers = headers if headers else {'User-Agent':'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/57.0.2987.133 Safari/537.36'}
-    #print (url)
+    headers = headers if headers else {'User-Agent':agents[-1],'referer': url}
+    log.info (url)
 
     try:
+        #requests.session().keep_alive=False
+        #requests.adapters.DEFAULT_RETRIES = 1
+        requests.adapters.DEFAULT_RETRIES =1   # 增加重连次数
+        s = requests.session()
+        s.keep_alive = False   # 关闭多余连接
+        s.headers= headers
+        #s.get(url)# 你需要的网址
         if method == 'post':
-            response = requests.post(url,data=params,headers=headers)
+            response = requests.post(url,data=params,headers=headers,timeout=1)
         else:
             response = requests.get(url,params,headers=headers)
         if response.status_code == requests.codes.ok :
             return response
         elif response.status_code == 403:
-            print ('Request Error 403')
+            log.critical ('Request Error 403')
             exit('403')
+        elif response.status_code == 404:
+            log.critical ('Request Error 404')
+            exit('404')
         else:
-            print (response.status_code)
-            print (response.url)
+            log.warning (response.status_code)
+            log.warning (response.url)
+            time.sleep(random.randint(0,1))
 
     except Exception as e:
-        print (response.url)
-        print (e)
+        log.warning (e)
 
     return
 
-def province():
 
-    response = craw('http://z.mafengwo.cn/jd')
 
+def start():
+    response = craw('https://www.meet99.com/maps/loadchild/lvyou/')
     if not response : return
+    res = []
+    for each in response.json():
 
-    ss = []
-    listdoc = pq(response.text)('.hot_city > .clearfix')
-
-    for each in listdoc('a[href^="http://z.mafengwo.cn/jd/"]').items():
-        if each.attr.href == response.url : continue
         o = {}
-        o['id'] = each.attr.href.split('/')[-1].split('.')[0]
+        p = r'.*lvyou-(.*).html\">(.*)（(\d*).*'
+        m = re.match(p,each['text'])
+        o['id'],o['name'],o['count'] = m.groups()
         o['parent'] = ''
-        o['level'] = 1
-        o['name'] = each.text().split(u"（")[0].replace('"','').replace("'",'')
-        ss.append(o)
-        #if ld : print (json.dumps(o,ensure_ascii = False))
+        o['sub'] = 1 if 'hasChildren' in each and each['hasChildren'] else  0
+        log.debug (o)
+        res.append(o)
+    db.t_mdd_a(res)
+    return
 
-    return ss
+def mdd(ids,tid=0):
 
-def _city(response,mddid):
-    ids = []
-    if response == None : return
-
-    ldoc = pq(response.json()["list"])
-    for d in ldoc('a').items():
-        if 'travel-scenic-spot' in d.attr.href:
+    for id in ids:
+        time.sleep(random.randint(1,5))
+        id = id[0]
+        response = craw('https://www.meet99.com/maps/loadchild/lvyou/'+id)
+        if not response : return
+        res = []
+        for each in response.json():
+            if not each : continue
+            log.debug (each)
             o = {}
-            o['id'] = d.attr.href.split("/")[-1].split(".")[0]
-            o['parent'] = mddid
-            o['level'] = 2
-            o['name'] = d.text().split("\n")[0]
-            ids.append(o)
+            p = r'.*lvyou-(.*).html\">(.*)（(\d*).*'
+            m = re.match(p,each['text'])
+            o['id'],o['name'],o['count'] = m.groups()
+            o['parent'] = id
+            o['sub'] = 1 if 'hasChildren' in each and each['hasChildren'] else  0
+            log.debug (o)
+            res.append(o)
+        db.t_mdd_a(res)
+        db.t_mdd_u(id)
+
+#print ("threads-{0}: no {1}/{2}. start process {3} . ".format(tid, str(i), mlen,json.dumps(params)))
+#print ("threads-{0}: no {1}. process {2} , finished, fond {3} records ".format(tid,str(i),m[0], str(len(cs))))
+
+#init()
 
 
-    pdoc = pq(response.json()["page"])  #print (page_doc.html())
-    if  pdoc(".pg-next"):
-        url = 'https://www.mafengwo.cn/mdd/base/list/pagedata_citylist'
-        ipage = pdoc(".pg-next").attr("data-page")
-        params = {'mddid': mddid, 'page': ipage }
-        params = json.loads( jm( json.dumps(params)))
-        rs = craw(url,params,method='post')
-        ids = ids + _city(rs,mddid)
+def aoi(ids,tid=0):
 
-    return ids
+    for id in ids:
+        time.sleep(random.randint(1,3))
+        id = id[0]
+        response = craw(' https://www.meet99.com/lvyou-{}.html'.format(id))
+        if not response : return
 
-def citys(mdds):
-    if not mdds : return
+        pdoc = pq(response.content)
 
-    for m in mdds:
-        time.sleep(random.randint(1,2))
-        cs = []
-        url = 'https://www.mafengwo.cn/mdd/base/list/pagedata_citylist'
-        params = {'mddid': m[0], 'page': 1}
-        params = json.loads( jm( json.dumps(params)))
-        response = craw(url,params,method='post')
-        cs = _city(response,m[0])
-        db.t_mdd_a(cs)
-        print (len(cs))
+        res = []
+
+        for each in pdoc('[t=""]').items():
+            log.debug (each)
+            url =  each('a[href^="\/jingdian-"]').attr.href
+            if not url: continue
+            pid = url.split('.')[0].split('-')[-1]
+            name = each('a[href^="\/jingdian-"]').text()
+
+            o = {}
+            o['id'] = pid
+            o['mdd'] = id
+            o['name'] = name
+            o['star'] = each('.cornernum').text()
+            o['gone'] = each('.ever span').text()
+            o['want'] = each('.never span').text()
+            o['url'] = 'https://www.meet99.com'+ url
+
+            log.debug(o)
+            res.append(o)
+        log.debug(res)
+
+        if db.t_poi_append(res):
+            db.t_mdd_update({'id':id,'subflag':1})
+
+#threadrun(aoi,db.t_s('pois'),12) #获取景点图片
+
+def down(ids,tid=0):
+    i = 0
+
+    for id in ids:
+
+
+        id = id[0]
+        response = craw('https://www.meet99.com/jingdian-{}.html'.format(id))
+        if not response : continue
+        open("cache\\meet\\{}.txt".format(id),'w',encoding='utf-8').write(response.text)
+
+        db.t_poi_update([{'id':id,'flag':1}])
+        i = i + 1
+        print (i)
+
+        if i % 50 == 0  :
+             a=input('按回车')
+             time.sleep(0.1)
+
+
+
+
+
+#down(db.t_s('down'),1)
+#threadrun(down,db.t_s('poi'),2)
+
+def poi(ids,tid=0):
+
+    for id in ids:
+        log.info(id)
+
+        id = id[0]
+        try:
+            content = open("cache\\meet\\{}.txt".format(id),'r',encoding='utf-8').read()
+        except:
+            log.error("cache\\meet\\{}.txt read is error!".format(id))
+            continue
+
+        #response = craw('https://www.meet99.com/jingdian-{}.html'.format(id))
+        #if not response : continue
+        pdoc = pq(content)
+
+        img = pdoc('#curphoto > div').attr.l
+        if img:
+            img = 'https://i.meet99.cn'+jm(img)
+
+        navimage = None
+        if pdoc('.bd  div.img[l]'):
+            navimage = 'https://i.meet99.cn'+jm(pdoc('.bd  div.img[l]').attr.l)
+
+        detail = []
+        for each in pdoc('.bd > div').items():
+            s = each.html().replace('<h2>','$$$')
+            s2 = re.sub(r'<.*?>','',s)
+            s2 = re.sub(r'从您位置到.*?卫星地图','',s2)
+            s3 = s2.split('$$$')
+            s4 = [l for l in s3 if l != '' and u'驴友' not in l and u'天气预报' not in l ]
+            detail += s4
+
+        j = {}
+        for item in detail:
+            if u'\u3000\u3000' in item:
+                key,value = item.split(u'\u3000\u3000',1)[0:2]
+                j[key.replace('：','').strip()] = html.unescape(value).strip().replace(u'\u3000','')
+
+
+
+
+        sub = []
+        for each in pdoc('.roundbox1 > .zl').items():
+            sub.append(each.html().replace('\xa0',''))
+
+        o = {}
+        o['id'] = id
+        o['area'] = j[u'景区位置'] if u'景区位置' in j else ""
+        o['star'] = j[u'景区资质'] if u'景区资质' in j else ""
+        o['type'] = j[u'景区特色'] if u'景区特色' in j else ""
+        o['line'] = j[u'游览路线'] if u'游览路线' in j else ""
+
+
+
+
+        o['img'] = img if img else ""
+        o['nav'] = navimage if navimage else ""
+
+
+        o['text'] = json.dumps(j,ensure_ascii=False)
+        o['sub'] = json.dumps(sub,ensure_ascii=False)
+        o['flag'] = 2
+        #log.info(o)
+
+        db.t_poi_update([o])
+
+poi(db.t_s('poi'),1)
+
+
+
+
+
+
+
+
+
 
 
 def _aoi(response,mddid):
@@ -201,7 +353,7 @@ def aois(ids,tid):
         else:
             db.t_poi_a(cs)
         i = i + 1
-        print ("threads-{0}: no {1}. process {2} , finished, fond {3} records ".format(tid,str(i),m[0], str(len(cs))))
+        log.info ("threads-{0}: no {1}. process {2} , finished, fond {3} records ".format(tid,str(i),m[0], str(len(cs))))
 
 
 
@@ -216,7 +368,7 @@ def _poi(poiid,response):
 
     ldoc = pq(response.json()['data']['html'])
     control = response.json()['data']['controller_data']
-    #print (control)
+    log.debug (control)
 
     for d in ldoc('a[href^="/poi"]').items():
         go = d.find('em').text()
@@ -226,7 +378,7 @@ def _poi(poiid,response):
         o['mdd'] = ''
         o['level'] = 4
         o['name'] = d.attr.title
-        #print (o)
+        log.debug (o)
         ids.append(o)
 
 
@@ -257,7 +409,7 @@ def pois(ids,tid):
         i = i + 1
         leng = str(len(ps)) if not ps == None else '0'
         mlen = str(len(ids))
-        print ("threads-{0}: no {1}/{2}. process {3} , finished, fond {4} records ".format(tid, str(i), mlen, m[0], leng))
+        log.info ("threads-{0}: no {1}/{2}. process {3} , finished, fond {4} records ".format(tid, str(i), mlen, m[0], leng))
 
 
 
@@ -283,10 +435,10 @@ def poisloc(ids,tid=1):
             d = json.dumps(d,ensure_ascii = False)
             db.t_poi_u_t(m[0],d)
         except Exception as e:
-            print ("poisloc Except:"+ str(e))
-            print (response.text())
+            log.waring ("poisloc Except:"+ str(e))
+            log.waring (response.text())
         i = i + 1
-        print ("threads-{0}: no {1}/{2}. process {3} , finished . ".format(tid, str(i), mlen, m[0]))
+        log.info ("threads-{0}: no {1}/{2}. process {3} , finished . ".format(tid, str(i), mlen, m[0]))
 
     return
 
@@ -299,7 +451,7 @@ def mfw2amap(ids,tid=1):
         j = json.loads(row[0])
         geos =[]
         if 'lng' not in j :
-            print (j)
+            log.debug (j)
             continue
 
         geo = g.regeo(str(j['lng']),str(j['lat']))
@@ -346,7 +498,7 @@ def mfw2amap(ids,tid=1):
             aid = found['id']
             atext = json.dumps(found,ensure_ascii = False)
             mid = j['id']
-            print (j)
+            log.info (j)
             db.t_poi_u_a(aid,atext,mid)
         else:
             #print (geos)
@@ -370,15 +522,15 @@ def _iid(mid):
 
     try:
         response = requests.get(url,params,headers=headers)
-        print (response.url)
+        log.debug (response.url)
 
         plist = pq(response.text)
         for p in plist('.a-like').items():
             id = p.attr("data-id")
-            print (id)
+            log.debug (id)
             return id
     except Exception as e:
-        print ("_iid Except:"+ str(e))
+        log.waring ("_iid Except:"+ str(e))
         return
 
 def pics(ids,tid=1):
@@ -421,9 +573,9 @@ def pics(ids,tid=1):
                 ldoc = pq(response.json()['html'])
 
             except Exception as e:
-                #print (response.text)
-                #print (response.url)
-                if str(e) != 'Document is empty' : print (e)
+                log.debug (response.text)
+                log.debug (response.url)
+                if str(e) != 'Document is empty' : log.warning (e)
                 break
 
             for item in ldoc('li').items():
@@ -449,17 +601,19 @@ def pics(ids,tid=1):
 
 
         db.t_img_a(ps)
-        print ("threads-{0}: no {1}/{2}. process {3} , finished . ".format(tid, str(i), mlen, m[0]))
+        log.info ("threads-{0}: no {1}/{2}. process {3} , finished . ".format(tid, str(i), mlen, m[0]))
 
 
     return
 
-
-db.t_c()    #创建表结构
 '''
-db.t_mdd_a(province())  #获取省份列表
+db.t_c()    #创建表结构
 
-citys(db.t_mdd_s(1))    #获取城市区域列表
+db.t_mdd_a(init())  #获取省份列表
+
+#threadrun(mdd,db.t_mdd_s(),12)   #获取景区列表
+
+mdd(db.t_mdd_s())    #获取城市区域列表
 
 threadrun(aois,db.t_mdd_s(2),2)   #获取景区列表
 
@@ -469,14 +623,15 @@ threadrun(poisloc,db.t_poi_s(),20) #获取景点坐标信息
 
 threadrun(mfw2amap,db.t_poi_s_t(),120) #获取景点坐标信息
 
-'''
+
 threadrun(pics,db.t_img_s(),120) #获取景点图片
 
+province()
 
 for i in range(1):
     time.sleep(1)
     winsound.Beep(600,1000)
 
-
+'''
 
 
